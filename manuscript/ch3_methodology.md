@@ -1,0 +1,72 @@
+# Chapter 3: Research Methodology
+
+This chapter describes the final, executable forecasting design. Hourly MERRA-2 reanalysis obtained through renewables.ninja [7, 8] was aligned with five-minute AEMO NSW1 solar cleared generation [9]. Four learned procedures, three baselines and a descriptive weighted ensemble were evaluated at 1, 3, 6 and 24-hour horizons. The research-question contrast compares `weather_history` with `combined`, testing whether intra-hour variability adds skill after hourly generation history is controlled. The complementary `weather` versus `weather_intra` contrast measures its value when ordinary generation history is absent.
+
+% [FIGURE: research_process_workflow.png]
+
+## 3.1 Data Sources and Target
+
+The target is `SS_SOLAR_CLEAREDMW` from AEMO's DISPATCHREGIONSUM archive, filtered to NSW1. It is market-cleared utility-scale solar generation, not total NSW production: most rooftop PV is absent, while curtailment and other dispatch effects remain. Intervention labels were unavailable in the legacy export. Hourly meteorology comprises regional means over eight NSW locations. The renewables.ninja simulated electricity series, AEMO UIGF, semi-scheduled aggregates and all target-time generation fields are excluded.
+
+The AEMO market clock is fixed AEST (UTC+10), including legacy records labelled UTC. Five-minute interval-ending observations are assigned to right-closed hourly bins labelled by their left edge, and an hour is retained only when the target column has twelve observations. Night-time zeros are valid; incomplete hours are not. The hour-of-day and day-of-year encodings and the rolling climatology hour key are taken from the index after conversion to Australia/Sydney. These features follow the civil calendar, which is one hour ahead of the market clock during daylight saving, rather than the market clock itself.
+
+Duplicate handling is deliberately conservative. Of 3,532 duplicated timestamp groups, 2,619 hold identical target values and collapse to one observation; the 913 with conflicting values are dropped rather than averaged, as the archive does not identify the normal-dispatch row. The window holds 46,752 hours, of which 46,570 are retained and 182 are lost. Sixty of those are lost at the front: 731 five-minute rows in the first 61 hours carry no market-cleared value, and the resampling grid begins at the first non-null timestamp, so those hours never enter the record. The remaining 122 are incomplete bins: 120 affected by the conflicting duplicates and two others, being the trailing hour of the null run (two of twelve intervals present) and the final hour of the window (eleven of twelve). Reporting the two mechanisms separately avoids attributing the whole loss to duplicate handling.
+
+After cleaning and joining, 46,570 complete hourly observations remain. The chronological split uses Sydney calendar years: September 2020-2023 for training, 2024 for validation and 2025 for testing. Removing rolling-feature warm-up rows leaves 29,016, 8,782 and 8,760 rows in the three splits, within which 118 hours are excluded inside training, two inside validation and none inside test, as the excluded hours fall in the earlier years.
+
+A contiguous 24-hour input window ending h hours before its target removes the first 23 + h rows of a split, so burn-in varies by horizon: 24, 26, 29 and 47 rows at 1, 3, 6 and 24 hours. The "common window" language in Chapter 4 therefore means common across models within a horizon, not identical across horizons.
+
+Table 3.1: Test-sample accounting by forecast horizon. Burn-in rows are removed from the front of the 8,760-row test split before any model is scored.
+
+| Horizon (h) | Window burn-in rows (23 + h) | Scored test observations |
+| --- | --- | --- |
+| 1 | 24 | 8,736 |
+| 3 | 26 | 8,734 |
+| 6 | 29 | 8,731 |
+| 24 | 47 | 8,713 |
+
+The validation year serves model selection and early stopping; the test year is reserved for final comparison. The split also reflects changing utility-scale capacity: a random partition would mix later high-output observations into training and understate the challenge of a growing fleet.
+
+## 3.2 Feature Engineering and Forecast Alignment
+
+Four feature sets isolate different information sources. `weather` contains 11 predictors: six meteorological variables, a clearness index and sine/cosine encodings of hour and day of year. `weather_history` adds the latest completed hourly value plus 24-observation trailing mean and standard deviation, giving 14 predictors. `weather_intra` adds two scale-normalised five-minute summaries, the coefficient of variation and relative range, giving 13 predictors. `combined` contains all 16.
+
+The intra-hour measures come from the twelve five-minute observations in the latest completed hour. Scaling both summaries by the corresponding hourly level reduces their dependence on the expanding NSW solar fleet, and denominators are protected near zero. They remain retrospective: no observation from the forecast target hour is used.
+
+The clearness index divides GHI by an extraterrestrial horizontal irradiance approximation at a representative NSW coordinate, clipped to [0, 1.5] and zeroed when the denominator is at most 20 W/m2. It is a regional proxy, not a physical ceiling on output.
+
+Each model receives a contiguous 24-hour input window and predicts one scalar target at one horizon, matched by elapsed timestamps rather than row position. Windows crossing a missing hour or a split boundary are rejected, so no nominal 24-row sequence spans more than 24 elapsed hours. Contiguity is enforced on elapsed time, not on local clock time, so a window may span a daylight-saving transition where no hour is missing.
+
+Feature construction follows forecast-time availability. Weather and calendar fields describe the issue-time sequence; generation features end at the latest completed AEMO hour, and trailing statistics are shifted before joining to future targets. Split-specific windowing stops a recurrent context importing observations across a split boundary, and assertions check monotonic unique timestamps, horizon displacement, feature counts and identical targets across feature sets. At the 24-hour horizon, 28,490 training windows remain.
+
+## 3.3 Models and Baselines
+
+XGBoost hyperparameters are selected with 30 Optuna trials per horizon. Each trial fits the same proposed settings on all four feature sets and minimises their mean validation RMSE, including the number of trees as a tuned parameter. The selected settings are then held fixed across all four arms. This feature-set-neutral objective prevents either side of an ablation from receiving its own tuning advantage, while keeping the comparison conditional on one shared configuration.
+
+Direct horizon-specific fitting avoids requiring one model to compromise among targets with different dynamics, at the cost of a larger training matrix and no information sharing among horizons. XGBoost sequences are flattened so lag position remains explicit to the tree learner; for recurrent models, that information stays ordered as time steps.
+
+The LSTM has one recurrent layer with 64 hidden units. The CNN-BiLSTM applies a 32-filter one-dimensional convolution with kernel size three, ReLU activation and max pooling, then a one-layer bidirectional LSTM with 64 hidden units and a 128-unit prediction head. Its matched physics-guided version has the same architecture, inputs, optimiser, seeds and early-stopping rule, but adds weight 0.1 on penalties for negative output and departure from zero in known night-time target periods. Their comparison therefore isolates the predictive effect of the tested loss penalties. Comparisons with the LSTM still change several architectural components together.
+
+Neural predictors and targets are standardised using training-window statistics only. Training uses batch size 512, learning rate 0.001, 100 epochs maximum and patience 20, restoring the best validation checkpoint. Each block is trained at seeds 42, 123, 456, 789 and 1024; headline predictions average the five seed forecasts, and individual-seed RMSE mean and standard deviation are reported separately. All three neural procedures use all four feature sets, so both intra-hour contrasts cover every learned procedure.
+
+Persistence repeats the latest completed-hour generation value. Rolling climatology uses only previously available observations for the same target local hour, with a 365-observation trailing window and an availability check. SARIMA(1,1,1)(1,0,0,24) is fitted on the training series, extended through validation, and updated with observations available at each test issue time before forecasting.
+
+The descriptive ensemble combines XGBoost, LSTM, CNN-BiLSTM and physics-guided forecasts using inverse-validation-RMSE weights normalised to one, ranging from 0.22 to 0.26. It is excluded from confirmatory significance families because it derives from those components.
+
+## 3.4 Evaluation and Statistical Decision Rules
+
+RMSE in MW is the primary accuracy measure, alongside MAE, bias, R2, daylight RMSE, persistence skill, relative RMSE (dividing by a past-only output scale available at issue time) and peak-normalised RMSE (dividing by an observed peak reference). The share of predictions clipped at zero is reported because non-negativity post-processing can hide negative forecasts.
+
+Meteorology-only gain is `100 x (RMSE_weather - RMSE_weather_intra) / RMSE_weather` and controlled feature gain is `100 x (RMSE_weather_history - RMSE_combined) / RMSE_weather_history`; a positive value favours intra-hour predictors. Moving-block bootstrap intervals use 2,000 resamples and block lengths of 24, 48 and 168 hours, the last the conservative headline because it preserves a full week of serial structure.
+
+Paired Diebold-Mariano tests [27] use squared-error differences and Newey-West estimates at bandwidths h-1, 24 and 168 hours. Bonferroni correction is applied separately within each comparison and bandwidth: 16 meteorology-only feature, 16 controlled feature, 48 baseline and 24 pairwise learned-procedure tests. A feature finding is robust only when the 168-hour interval excludes zero, all three corrected tests agree, and the output-scale calculation gives the same direction.
+
+The four inferential families answer different questions. Two evaluate the added intra-hour variables without and with hourly history; the baseline family asks whether each learned procedure improves on persistence, rolling climatology and SARIMA; and the pairwise family compares procedures on combined inputs. Keeping them separate controls multiplicity without placing the descriptive ensemble or regime plots inside a confirmatory family.
+
+The matched CNN-BiLSTM pair is the only architecture-level comparison. The other pairwise results concern complete forecasting procedures because model form, training dynamics or seed treatment differ together. Moving-block and Diebold-Mariano calculations treat each saved forecast series as fixed, so their uncertainty covers time dependence within 2025 rather than variation across training seeds.
+
+## 3.5 Reproducibility and Ethics
+
+The final notebook ran from a fresh kernel with code-cell execution counts 1-30 and no recorded errors or standard-error output, from 01:47:44 to 02:38:01 UTC on 14 September 2026 on Apple Silicon (`arm64`) under PyTorch MPS. The saved environment was conda `spunky`, Python 3.12.12, PyTorch 2.5.1, XGBoost 3.0.1, pandas 2.3.3 and NumPy 2.1.3. The run records 480 XGBoost tuning fits and 240 neural fits.
+
+The project uses observational agency data without human subjects or personal identifiers. Reproducibility is computational rather than exact across hardware: floating-point order, accelerator kernels and package versions produce small differences. Data-source acknowledgement does not establish redistribution rights [7], [8], [9].

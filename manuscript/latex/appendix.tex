@@ -1,0 +1,77 @@
+\subsection*{Appendix A: Data Sources and Licences}
+
+The generation source is AEMO DISPATCHREGIONSUM for NSW1, retrieved through NEMOSIS. The legacy export lacks intervention labels. Exact-value duplicate timestamps are collapsed; conflicting timestamp groups are dropped because the normal-dispatch observation cannot be identified. Hourly meteorology comes from renewables.ninja for Sydney, Newcastle, Wollongong, Central Coast, Tamworth, Bathurst, Orange and Dubbo. Source attribution and access conditions should accompany redistribution of archived data. The simulated renewables.ninja PV series is excluded from prediction inputs.
+
+\subsection*{Appendix B: Reproducibility Configuration}
+
+\setcounter{table}{0}
+\renewcommand{\thetable}{B.\arabic{table}}
+
+Table~\ref{tab:app_b1} records the final training and evaluation configuration.
+
+\begin{table}[h!]
+\centering
+\caption{Reproducibility configuration summary.}
+\label{tab:app_b1}
+\footnotesize
+\begin{tabularx}{\linewidth}{|l|X|}
+\hline
+\textbf{Component} & \textbf{Setting} \\
+\hline
+Chronological split & train September 2020 to 2023; validation 2024; test 2025 \\
+Feature sets & weather (11), weather\_intra (13), weather\_history (14), combined (16) \\
+Forecast horizons & 1, 3, 6 and 24 hours; direct scalar model per horizon \\
+Sequence construction & contiguous 24-hour windows; exact elapsed-time target matching \\
+LSTM & one layer; 64 hidden units \\
+CNN-BiLSTM control & Conv1D 32 filters, kernel 3; max pool; bidirectional LSTM 64; head 128 \\
+Physics-guided model & architecture matched to CNN-BiLSTM control \\
+Physics-guided loss & MSE plus 0.1 times negative-output and night-time zero penalties \\
+Optimisation & batch 512; learning rate 0.001; maximum 100 epochs \\
+Early stopping & patience 20; best validation checkpoint restored \\
+Random seeds & 42, 123, 456, 789 and 1024 \\
+XGBoost & 30 Optuna trials per feature set and horizon; horizon setting selected by mean validation RMSE across all four sets \\
+Ensemble & inverse validation-RMSE weights across four learned models \\
+Significance testing & Diebold-Mariano bandwidths h-1, 24 and 168; family-wise Bonferroni \\
+Bootstrap CIs & 95\%; 2,000 moving-block resamples; 24, 48 and 168-hour blocks \\
+Final hardware & Apple Silicon arm64; PyTorch MPS \\
+Final environment & conda spunky; Python 3.12.12; PyTorch 2.5.1; XGBoost 3.0.1 \\
+Execution & 14 September 2026; clean kernel; 30 code cells; no errors or stderr \\
+Notebook SHA-256 & 334693053e09254bdb10d1b4a5f628df\allowbreak{}0e1c2b9b06ac2e744adea0d84c00b4f6 \\
+Digest command & sha256sum applied to the notebook file itself; the value is reproduced in the run manifest and checked by the verification script on every build \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsection*{Appendix C: Literature Search Protocol and Screening Flow}
+
+The retained set was assembled in July 2026 from two databases. arXiv was queried through 15 Boolean expressions combining terms such as solar PV forecasting, machine learning, irradiance, LSTM, physics-guided and reanalysis. Semantic Scholar was queried through three broader expressions. Coverage was 2020 to 2026, with foundational pre-2020 papers retained where they established architectures still in use. Inclusion required machine learning or statistical forecasting of solar irradiance or PV generation with reported quantitative error metrics. Exclusion covered wind-only forecasting, papers without reported metrics, and hardware or policy analysis. Screening was conducted by a single reviewer.
+
+\setcounter{table}{0}
+\renewcommand{\thetable}{C.\arabic{table}}
+
+Table~\ref{tab:app_c1} records the screening flow as the notes report it.
+
+\begin{table}[h!]
+\centering
+\caption{Literature screening flow, July 2026.}
+\label{tab:app_c1}
+\footnotesize
+\begin{tabularx}{\linewidth}{|l|X|}
+\hline
+\textbf{Stage} & \textbf{Count or decision} \\
+\hline
+arXiv Boolean queries run & 15 \\
+Semantic Scholar queries run & 3 \\
+arXiv records returned & approximately 1,300,000 \\
+Retained at title and abstract screening & 18 \\
+Added from Semantic Scholar & 3 \\
+Added from citation tracking & 2 \\
+Added from targeted Crossref search & 3 \\
+Retained items in total & 26 \\
+Designated key references in the notes & 12 \\
+Per-record screening decisions retained & no; only aggregate counts were recorded \\
+\hline
+\end{tabularx}
+\end{table}
+
+The July 2026 search retained 26 items. The printed bibliography now holds 37 entries, so eleven entries sit outside that retained search set: seven forecasting or verification studies from the round run for this revision, two AEMO documents that define and operationalise the target series, one industry report carrying the rooftop and utility-scale generation shares, and the Diebold-Mariano method reference used for forecast comparison. Across all 37 entries the split is 30 forecasting studies, six data or service sources (the Bureau of Meteorology, renewables.ninja, three AEMO documents and the Clean Energy Council) and one method reference. Because per-record decisions were not kept, the search cannot be reproduced record by record, and the gap claim in Section 2.7 is bounded by the retained material rather than established against the field.

@@ -1,0 +1,30 @@
+# Data — collected locally, not redistributed
+data/raw/
+data/processed/
+*.csv
+*.json
+*.parquet
+*.h5
+*.nc
+
+# Notebook figure output, regenerated on every run
+/figures/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+.venv/
+*.egg-info/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+analysis/*.bak.ipynb
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
